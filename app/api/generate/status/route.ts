@@ -3,7 +3,7 @@ import {createClient} from '@supabase/supabase-js';
 export const runtime='nodejs';
 export async function GET(req:NextRequest){
  try{
-  const token=req.headers.get('authorization')?.replace(/^Bearer\\s+/i,'');const id=new URL(req.url).searchParams.get('id');
+  const token=req.headers.get('authorization')?.replace(/^Bearer\s+/i,'');const id=new URL(req.url).searchParams.get('id');
   if(!token||!id)return NextResponse.json({error:'Authentication and job ID required.'},{status:400});
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL,anon=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,credentials=process.env.HF_CREDENTIALS;
   if(!url||!anon||!credentials)return NextResponse.json({error:'Provider is not configured.'},{status:503});

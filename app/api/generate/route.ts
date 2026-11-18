@@ -14,10 +14,11 @@ export async function POST(req:NextRequest){
   const body=await req.json();
   const prompt=String(body.prompt||'').trim();
   if(!prompt)return NextResponse.json({error:'A prompt is required.'},{status:400});
-  const kind=body.type==='image'?'image':'video';
+  const kind=body.type==='image'?'image':body.type==='video'?'video':null;
+  if(!kind)return NextResponse.json({error:'Choose either image or video generation.'},{status:400});
   const provider=body.provider==='gemini'?'gemini':'higgsfield';
   const ratio=['16:9','4:3','1:1','3:4','9:16','21:9'].includes(body.aspect_ratio)?body.aspect_ratio:'16:9';
-  const duration=Math.max(4,Math.min(30,Number(body.duration)||5));
+  const duration=kind==='video'?Math.max(4,Math.min(30,Number(body.duration)||5)):null;
   let model='',requestId:string|null=null,statusUrl:string|null=null,output:any={},jobStatus:'processing'|'completed'='processing';
 
   if(provider==='gemini'){
@@ -30,7 +31,12 @@ export async function POST(req:NextRequest){
      body:JSON.stringify({contents:[{parts:[{text:prompt+' Create the image in '+ratio+' aspect ratio.'}]}]}),cache:'no-store'
     });
     const result=await response.json();
-    if(!response.ok)return NextResponse.json({error:result?.error?.message||'Gemini image generation failed.',details:result},{status:response.status});
+    if(!response.ok){
+     const providerMessage=String(result?.error?.message||'Gemini image generation failed.');
+     const quotaHit=response.status===429||/quota exceeded|free.?tier.*limit|requests per day/i.test(providerMessage);
+     if(quotaHit)return NextResponse.json({code:'GEMINI_IMAGE_QUOTA_EXCEEDED',error:'Google Gemini Image has no available quota for this API project. The response reports a free-tier limit of 0. Check Google AI Studio billing and model limits, or switch the provider to Higgsfield. Waiting alone may not restore a quota whose limit is 0.'},{status:429});
+     return NextResponse.json({error:providerMessage,details:result},{status:response.status});
+    }
     const parts=result?.candidates?.[0]?.content?.parts||[];
     const imagePart=parts.find((part:any)=>part.inlineData?.data);
     if(!imagePart)return NextResponse.json({error:'Gemini responded but did not return an image. Try a more specific prompt.',details:parts.filter((part:any)=>part.text).map((part:any)=>part.text)},{status:502});
@@ -73,7 +79,7 @@ export async function POST(req:NextRequest){
    output={provider_request_id:requestId,status_url:statusUrl,provider_result:null};
   }
 
-  const insert={user_id:user.id,job_type:kind,provider,model,prompt,input:{aspect_ratio:ratio,duration,provider},output,status:jobStatus,...(jobStatus==='completed'?{completed_at:new Date().toISOString()}:{})};
+  const insert={user_id:user.id,job_type:kind,provider,model,prompt,input:{aspect_ratio:ratio,...(kind==='video'?{duration}:{}),provider},output,status:jobStatus,...(jobStatus==='completed'?{completed_at:new Date().toISOString()}:{})};
   const {data:job,error:dbError}=await supabase.from('generation_jobs').insert(insert).select('id,status,created_at,output,provider,model').single();
   if(dbError)return NextResponse.json({error:'Generation was accepted but could not be saved to your history: '+dbError.message,request_id:requestId},{status:500});
   return NextResponse.json({job,request_id:requestId,status_url:statusUrl});

@@ -31,7 +31,7 @@ export async function GET(req:NextRequest){
   const status=completed?'completed':failed?'failed':'processing';
   const normalized=job.provider==='gemini'?{video:{url:providerResult.url||providerResult.video?.url||providerResult.output?.url||null},provider_result:providerResult}:{...providerResult};
   const updatedOutput={...job.output,...normalized};
-  const {error:updateError}=await sb.from('generation_jobs').update({status,output:updatedOutput,error_message:failed?(providerResult.error?.message||providerResult.error||rawState):null,...((completed||failed)?{completed_at:new Date().toISOString()}:{})}).eq('id',id).eq('user_id',user.id);
+  const {error:updateError}=await sb.rpc('update_generation_job_result',{p_job_id:id,p_status:status,p_output:updatedOutput,p_error_message:failed?String(providerResult.error?.message||providerResult.error||rawState):null});
   return NextResponse.json({job_id:id,status,result:updatedOutput,warning:updateError?.message||undefined});
  }catch(e:any){return NextResponse.json({error:e.message||'Status check failed.'},{status:500});}
 }

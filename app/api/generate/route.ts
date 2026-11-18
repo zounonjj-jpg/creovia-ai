@@ -71,9 +71,21 @@ export async function POST(req:NextRequest){
    const input:any=kind==='image'?{prompt,resolution:'2k',aspect_ratio:imageRatio,enhance_prompt:false}:{prompt,duration,resolution:['480p','720p','1080p'].includes(body.resolution)?body.resolution:'720p',output_format:'mp4',generate_audio:body.generate_audio!==false};
    if(body.image_url){if(kind==='image')input.image_urls=[String(body.image_url)];else input.image_url=String(body.image_url);}
    else if(kind==='video')input.aspect_ratio=ratio;
+   if(kind==='image'){
+    input.quality='high';
+    input.moderation='auto';
+   }
    const response=await fetch('https://api.higgsfield.ai/'+model,{method:'POST',headers:{Authorization:'Key '+credentials,'Content-Type':'application/json'},body:JSON.stringify(input),cache:'no-store'});
-   const result=await response.json();
-   if(!response.ok)return NextResponse.json({error:result?.message||result?.error||'Higgsfield rejected the request.',details:result},{status:response.status});
+   const rawResponse=await response.text();
+   let result:any;
+   try{result=rawResponse?JSON.parse(rawResponse):{};}catch{result={raw_response:rawResponse.slice(0,2000)};}
+   if(!response.ok){
+    const providerError=result?.error;
+    const providerMessage=typeof providerError==='string'?providerError:providerError?.message||result?.message||result?.detail||'Higgsfield rejected the request.';
+    const code=providerError?.code||result?.code||providerError?.type||null;
+    const guidance=response.status===401?'Higgsfield API key is invalid. Check that HF_CREDENTIALS contains the complete API key copied from Open Higgsfield.':response.status===403?'Higgsfield denied this request. Check API account access, permissions and prepaid API balance.':response.status===402?'Higgsfield API balance may be empty. The website subscription and API balance are separate.':response.status===400||response.status===422?'Higgsfield rejected one or more request parameters. The provider details are included below.':'Check the Higgsfield API account, model availability and prepaid balance.';
+    return NextResponse.json({error:providerMessage,provider:'higgsfield',provider_status:response.status,provider_code:code,request_id:result?.request_id||null,guidance,details:result},{status:response.status});
+   }
    requestId=result.request_id||result.id||null;statusUrl=result.status_url||null;
    if(!requestId)return NextResponse.json({error:'Higgsfield did not return a request ID.',details:result},{status:502});
    output={provider_request_id:requestId,status_url:statusUrl,provider_result:null};
